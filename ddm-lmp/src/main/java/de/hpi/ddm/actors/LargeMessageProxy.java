@@ -4,10 +4,7 @@ import java.io.*;
 import java.nio.ByteBuffer;
 
 import akka.actor.*;
-import akka.serialization.ByteBufferSerializer;
-import akka.serialization.Serialization;
-import akka.serialization.SerializationExtension;
-import akka.serialization.Serializer;
+import akka.serialization.*;
 import de.hpi.ddm.configuration.ConfigurationSingleton;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -17,6 +14,7 @@ import akka.actor.ActorRef;
 import akka.actor.ActorSystem;
 import akka.serialization.ByteBufferSerializer;
 import com.typesafe.config.ConfigFactory;
+import scala.util.Success;
 
 public class LargeMessageProxy extends AbstractLoggingActor{
 
@@ -51,6 +49,8 @@ public class LargeMessageProxy extends AbstractLoggingActor{
 		private T bytes;
 		private ActorRef sender;
 		private ActorRef receiver;
+		private String manifest;
+		private int serialIdentifier;
 	}
 	
 	/////////////////
@@ -77,68 +77,13 @@ public class LargeMessageProxy extends AbstractLoggingActor{
 	private void handle(LargeMessage<?> message) {
 
 
-	    /*
-	     @Override
-        public void toBinary(Object o, ByteBuffer buf) {
-            val pool = new akka.io.DirectByteBufferPool(ConfigurationSingleton.get().getDataSize() * 1000000, maxPoolEntries = 10);
-            val buffer = pool.aquire();
-            ObjectOutputStream objectOutputStreamStream = new ObjectOutputStream(o);
-            objectOutputStreamStream.write(buffer);
-            ObjectOutputStream.close();
-        }
 
-        @Override
-        public Object fromBinary(ByteBuffer buf, String manifest) throws NotSerializableException {return null;}
-
-
-	     */
 		ActorRef receiver = message.getReceiver();
 		ActorSelection receiverProxy = this.context().actorSelection(receiver.path().child(DEFAULT_NAME));
         //ActorSelection selection = this.context().actorSelection("akka://ddm@"+ip+":"+port+"user/receiver#"+receiver.path().uid());
 
 
 /*
------------
-        // you need to know the maximum size in bytes of the serialized messages
-        // Find the Serializer for it
-        // Get the Serialization Extension
-
-        ActorSystem system = this.context().actorFor("ddm");
-        Serialization serialization = SerializationExtension.get(system);
-        Serializer serializer = serialization.findSerializerFor(message);
-        serializer.toBinary(message);
-
-        //FOR RECEIVER: https://doc.akka.io/docs/akka/2.5.6/java/serialization.html
-        // Turn it back into an object,
-        // the nulls are for the class manifest and for the classloader
-        String back = (String) serializer.fromBinary(bytes);
---------
-
-
-
-
-
-
-        ByteBufferSerializer.toBinary​(message, buf);
-        message.read
-        pool.release(buf);
-        message.writeObject(message);
-
-        try {
-            val pool = new akka.io.DirectByteBufferPool(ConfigurationSingleton.get().getDataSize() * 1000000, maxPoolEntries = 10);
-            val buf = pool.acquire();
-            ObjectInputStream objectInputStream = new ObjectInputStream(message);
-             message.readObject(objectInputStream);
-            objectInputStream.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (ClassNotFoundException e) {
-            e.printStackTrace();
-        }
-
-        //Objekt lesen
-        LargeMessage object = LargeMessage objectInputStream.readObject();
-
 
         // This will definitely fail in a distributed setting if the serialized message is large!
 		// Solution options:
@@ -157,14 +102,17 @@ public class LargeMessageProxy extends AbstractLoggingActor{
 
         // Find the Serializer for it
         Serializer serializer = serialization.findSerializerFor(message.getMessage());
+        int serializerIdentifier = serializer.identifier();
+        String manifest = Serializers.manifestFor(serialization.findSerializerFor(message.getMessage()),message.getMessage());
+        serializer.includeManifest();
 
         // Turn it into bytes
-        byte[] bytes = serializer.toBinary(message.getMessage());
-        this.log().info("Jetzt kommt Nachricht Bytes");
-
+        byte[] bytes = serialization.serialize(message.getMessage()).get();
+        //this.log().info("Jetzt kommt Nachricht Bytes");
+        this.log().info("Nachricht Output: " + message.getMessage());
         this.log().info(serializer.toBinary(message.getMessage()).toString());
-        this.log().info("To Binary: " + serializer.fromBinary(bytes));
-        receiverProxy.tell(new BytesMessage<>(bytes, this.sender(), message.getReceiver()), this.self());
+        //this.log().info("To Binary: " + serializer.fromBinary(bytes));
+        receiverProxy.tell(new BytesMessage<>(bytes, this.sender(), message.getReceiver(), manifest, serializerIdentifier), this.self());
 
 
 
@@ -179,11 +127,12 @@ public class LargeMessageProxy extends AbstractLoggingActor{
         Serialization serialization = SerializationExtension.get(system);
         // Find the Serializer for it
 
+       // Serializer serializer = serialization.findSerializerFor(message.getBytes());
+        Object msg = (Object) serialization.deserialize((byte[])message.getBytes(),message.getSerialIdentifier(), message.getManifest());
+        message.getReceiver().tell(((Success) msg).value(), message.getSender());
 
-        Serializer serializer = serialization.findSerializerFor((byte []) message.getBytes());
 
-        this.log().info((String) serializer.fromBinary((byte [])message.getBytes()));
-        message.getReceiver().tell(serializer.fromBinary((byte []) message.getBytes()), message.getSender());
+
 
 	}
 
