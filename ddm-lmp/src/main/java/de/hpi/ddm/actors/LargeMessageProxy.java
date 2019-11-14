@@ -2,10 +2,12 @@ package de.hpi.ddm.actors;
 
 import java.io.*;
 import java.nio.ByteBuffer;
+import java.util.*;
 
 import akka.actor.*;
 import akka.serialization.*;
 import de.hpi.ddm.configuration.ConfigurationSingleton;
+import it.unimi.dsi.fastutil.Hash;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -14,7 +16,10 @@ import akka.actor.ActorRef;
 import akka.actor.ActorSystem;
 import akka.serialization.ByteBufferSerializer;
 import com.typesafe.config.ConfigFactory;
+import org.apache.commons.collections.map.HashedMap;
 import scala.util.Success;
+
+import static java.lang.System.exit;
 
 public class LargeMessageProxy extends AbstractLoggingActor{
 
@@ -23,7 +28,11 @@ public class LargeMessageProxy extends AbstractLoggingActor{
 	////////////////////////
 
 	public static final String DEFAULT_NAME = "largeMessageProxy";
-	
+
+
+
+	private HashMap<Integer, HashMap<Integer, BytesMessage>> cache;
+
 	public static Props props() {
 		return Props.create(LargeMessageProxy.class);
 	}
@@ -51,19 +60,11 @@ public class LargeMessageProxy extends AbstractLoggingActor{
 		private ActorRef receiver;
 		private String manifest;
 		private int serialIdentifier;
-	}
-	
-	/////////////////
-	// Actor State //
-	/////////////////
-	
-	/////////////////////
-	// Actor Lifecycle //
-	/////////////////////
 
-	////////////////////
-	// Actor Behavior //
-	////////////////////
+		private int messageHash;
+		private int chunkId;
+		private int messageChunkAmount;
+	}
 	
 	@Override
 	public Receive createReceive() {
@@ -74,25 +75,13 @@ public class LargeMessageProxy extends AbstractLoggingActor{
 				.build();
 	}
 
+	public LargeMessageProxy() {
+		this.cache = new HashMap<Integer, HashMap<Integer, BytesMessage>>();
+	}
+
 	private void handle(LargeMessage<?> message) {
-
-
-
 		ActorRef receiver = message.getReceiver();
 		ActorSelection receiverProxy = this.context().actorSelection(receiver.path().child(DEFAULT_NAME));
-        //ActorSelection selection = this.context().actorSelection("akka://ddm@"+ip+":"+port+"user/receiver#"+receiver.path().uid());
-
-
-/*
-
-        // This will definitely fail in a distributed setting if the serialized message is large!
-		// Solution options:
-		// 1. Serialize the object and send its bytes batch-wise (make sure to use artery's side channel then).
-		// 2. Serialize the object and send its bytes via Akka streaming.
-		// 3. Send the object via Akka's http client-server component.
-		// 4. Other ideas ...
-		*/
-
 
 
         ActorSystem system = this.context().system();
@@ -108,32 +97,60 @@ public class LargeMessageProxy extends AbstractLoggingActor{
 
         // Turn it into bytes
         byte[] bytes = serialization.serialize(message.getMessage()).get();
-        //this.log().info("Jetzt kommt Nachricht Bytes");
+        int messageHash = Arrays.hashCode(bytes);
         this.log().info("Nachricht Output: " + message.getMessage());
         this.log().info(serializer.toBinary(message.getMessage()).toString());
-        //this.log().info("To Binary: " + serializer.fromBinary(bytes));
-        receiverProxy.tell(new BytesMessage<>(bytes, this.sender(), message.getReceiver(), manifest, serializerIdentifier), this.self());
 
+		int chunkSizeBytes = 100000;  // 100 KB
+		int messageChunkAmount = ((int) bytes.length / chunkSizeBytes) +1;
 
-
-     //   receiverProxy.tell(bytes, this.self());
+		for (int i=0; i < messageChunkAmount; i++) {
+			receiverProxy.tell(
+					new BytesMessage<>(
+							Arrays.copyOfRange(bytes, i * chunkSizeBytes, Math.min((i+1)*chunkSizeBytes, bytes.length)),
+							this.sender(), message.getReceiver(), manifest, serializerIdentifier, messageHash,
+							i, messageChunkAmount
+					), this.self()
+			);
+		}
 	}
 
 	private void handle(BytesMessage<?> message) {
-		// Reassemble the message content, deserialize it and/or load the content from some local location before forwarding its content.
-        ActorSystem system = this.context().system();
 
-        // Get the Serialization Extension
-        Serialization serialization = SerializationExtension.get(system);
-        // Find the Serializer for it
+		int messageHash = message.getMessageHash();
 
-       // Serializer serializer = serialization.findSerializerFor(message.getBytes());
-        Object msg = (Object) serialization.deserialize((byte[])message.getBytes(),message.getSerialIdentifier(), message.getManifest());
-        message.getReceiver().tell(((Success) msg).value(), message.getSender());
+		// save current message to cache
+		this.cache.putIfAbsent(messageHash, new HashMap<Integer, BytesMessage>());
+		this.cache.get(messageHash).put(message.getChunkId(), message);
+
+		// check if current ByteMessage completes large message
+		if (this.cache.get(messageHash).size() >= message.getMessageChunkAmount()) {
+			// send all messages that are completed to parent
+			Iterator cachedMessages = this.cache.get(messageHash).entrySet().iterator();
+			ByteArrayOutputStream reassembledMessage = new ByteArrayOutputStream();
+
+			while(cachedMessages.hasNext()){
+				Map.Entry pair = (Map.Entry)cachedMessages.next();
+				BytesMessage bmsg = (BytesMessage) pair.getValue();
+				try {
+					reassembledMessage.write((byte[]) bmsg.getBytes());
+				} catch (java.io.IOException e) {
+					this.log().error("MESSAGE TOO LARGE TO DESIERIALIZE");
+					return;
+				}
+			}
+			byte[] fullMessage = reassembledMessage.toByteArray();
 
 
+			// Reassemble the message content, deserialize it and/or load the content from some local location before forwarding its content.
+			ActorSystem system = this.context().system();
+			Serialization serialization = SerializationExtension.get(system);
+			Object msg = (Object) serialization.deserialize(fullMessage, message.getSerialIdentifier(), message.getManifest());
+			message.getReceiver().tell(((Success) msg).value(), message.getSender());
 
-
+			// Delete cached message chunks to indicate that we are done
+			this.cache.remove(messageHash);
+		}
 	}
 
 
