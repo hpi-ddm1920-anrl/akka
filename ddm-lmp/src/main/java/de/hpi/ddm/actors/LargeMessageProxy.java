@@ -40,16 +40,13 @@ public class LargeMessageProxy extends AbstractLoggingActor{
 	////////////////////
 	// Actor Messages //
 	////////////////////
-	
+
 	@Data @NoArgsConstructor @AllArgsConstructor
 	public static class LargeMessage<T> implements Serializable{
 		private static final long serialVersionUID = 2940665245810221108L;
 		private T message;
 		private ActorRef receiver;
-
-
     }
-
 
 
 	@Data @NoArgsConstructor @AllArgsConstructor
@@ -65,7 +62,7 @@ public class LargeMessageProxy extends AbstractLoggingActor{
 		private int chunkId;
 		private int messageChunkAmount;
 	}
-	
+
 	@Override
 	public Receive createReceive() {
 		return receiveBuilder()
@@ -101,11 +98,11 @@ public class LargeMessageProxy extends AbstractLoggingActor{
         this.log().info("Nachricht Output: " + message.getMessage());
         this.log().info(serializer.toBinary(message.getMessage()).toString());
 
-		int chunkSizeBytes = 100000;  // 100 KB
+		int chunkSizeBytes = 10000;  // 10 KB
 		int messageChunkAmount = ((int) bytes.length / chunkSizeBytes) +1;
 
 		for (int i=0; i < messageChunkAmount; i++) {
-		    System.out.println("sent chunk "+i);
+			System.out.println("sent chunk");
 			receiverProxy.tell(
 					new BytesMessage<>(
 							Arrays.copyOfRange(bytes, i * chunkSizeBytes, Math.min((i+1)*chunkSizeBytes, bytes.length)),
@@ -123,9 +120,11 @@ public class LargeMessageProxy extends AbstractLoggingActor{
 		// save current message to cache
 		this.cache.putIfAbsent(messageHash, new HashMap<Integer, BytesMessage>());
 		this.cache.get(messageHash).put(message.getChunkId(), message);
+			System.out.println("Received chunk");
 
 		// check if current ByteMessage completes large message
 		if (this.cache.get(messageHash).size() >= message.getMessageChunkAmount()) {
+			System.out.println("Chunk completed");
 			// send all messages that are completed to parent
 			Iterator cachedMessages = this.cache.get(messageHash).entrySet().iterator();
 			ByteArrayOutputStream reassembledMessage = new ByteArrayOutputStream();
