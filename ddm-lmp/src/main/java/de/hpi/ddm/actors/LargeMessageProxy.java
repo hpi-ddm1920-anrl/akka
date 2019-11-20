@@ -29,8 +29,6 @@ public class LargeMessageProxy extends AbstractLoggingActor{
 
 	public static final String DEFAULT_NAME = "largeMessageProxy";
 
-
-
 	private HashMap<Integer, HashMap<Integer, BytesMessage>> cache;
 
 	public static Props props() {

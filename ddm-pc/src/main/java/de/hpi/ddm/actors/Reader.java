@@ -84,6 +84,7 @@ public class Reader extends AbstractLoggingActor {
 	}
 	
 	private void read() throws Exception {
+		// TODO send message that initiates the alphabet for the Master Actor
 		this.buffer.clear();
 		
 		String[] line;

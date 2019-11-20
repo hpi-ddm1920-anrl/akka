@@ -1,12 +1,10 @@
 package de.hpi.ddm.actors;
 
+import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 import akka.actor.AbstractLoggingActor;
 import akka.actor.ActorRef;
@@ -19,6 +17,9 @@ import akka.cluster.ClusterEvent.MemberUp;
 import akka.cluster.Member;
 import akka.cluster.MemberStatus;
 import de.hpi.ddm.MasterSystem;
+import lombok.Data;
+import scala.compat.java8.MakesSequentialStream;
+import sun.nio.cs.Surrogate;
 
 public class Worker extends AbstractLoggingActor {
 
@@ -28,6 +29,7 @@ public class Worker extends AbstractLoggingActor {
 	
 	public static final String DEFAULT_NAME = "worker";
 
+
 	public static Props props() {
 		return Props.create(Worker.class);
 	}
@@ -35,6 +37,10 @@ public class Worker extends AbstractLoggingActor {
 	public Worker() {
 		this.cluster = Cluster.get(this.context().system());
 	}
+
+	private HashSet<String> hintHashes;
+	private char[] alphabet;
+	private char[] assignedLetters;
 
 	// Bilde alle Permutationen
 
@@ -79,9 +85,18 @@ public class Worker extends AbstractLoggingActor {
 				.match(CurrentClusterState.class, this::handle)
 				.match(MemberUp.class, this::handle)
 				.match(MemberRemoved.class, this::handle)
+				.match(Master.StartHintCrackingMessage.class, this::handle)
 				.match(String[].class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
+	}
+
+	private void handle(Master.StartHintCrackingMessage msg){
+		// start working
+		for (char c : msg.getDroppableHintChars()) {
+			char[] localAlphabet = (new ArrayList<Character>(msg.getAlphabet()).remove(c)).toArray();
+			heapPermutation(localAlphabet, localAlphabet.length, msg.getHintLength());
+		}
 	}
 
 	private void handle(String[] message) {
@@ -141,7 +156,7 @@ public class Worker extends AbstractLoggingActor {
 	}
 
 	private void handle(MemberUp message) {
-		this.register(message.member());System.out.println("angekommen");
+		this.register(message.member());
 	}
 
 	private void register(Member member) {
@@ -174,14 +189,18 @@ public class Worker extends AbstractLoggingActor {
 			throw new RuntimeException(e.getMessage());
 		}
 	}
-	
+
 	// Generating all permutations of an array using Heap's Algorithm
 	// https://en.wikipedia.org/wiki/Heap's_algorithm
 	// https://www.geeksforgeeks.org/heaps-algorithm-for-generating-permutations/
-	private void heapPermutation(char[] a, int size, int n, List<String> l) {
+	private void heapPermutation(char[] a, int size, int n) {
 		// If size is 1, store the obtained permutation
-		if (size == 1)
-			l.add(new String(a));
+		if (size == 1 && hintHashes.contains(hash(String.valueOf(a)))) {
+			// Refactor not to do this in the recursion step but in parent function
+			this.getContext()
+					.actorSelection(masterSystem.address() + "/user/" + Master.DEFAULT_NAME)
+					.tell(new Master.FoundHintMessage(String.valueOf(a)), this.self());
+		}
 
 		for (int i = 0; i < size; i++) {
 			heapPermutation(a, size - 1, n, l);
@@ -201,4 +220,5 @@ public class Worker extends AbstractLoggingActor {
 			}
 		}
 	}
+
 }

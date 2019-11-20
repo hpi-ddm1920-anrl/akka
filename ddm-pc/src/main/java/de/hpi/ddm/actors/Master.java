@@ -1,10 +1,7 @@
 package de.hpi.ddm.actors;
 
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Iterator;
-import java.util.List;
+import java.util.*;
 
 import akka.actor.AbstractLoggingActor;
 import akka.actor.ActorRef;
@@ -54,7 +51,22 @@ public class Master extends AbstractLoggingActor {
 	public static class RegistrationMessage implements Serializable {
 		private static final long serialVersionUID = 3303081601659723997L;
 	}
-	
+
+	@Data @NoArgsConstructor @AllArgsConstructor
+	public static class StartHintCrackingMessage implements Serializable {
+		private static final long serialVersionUID = 3303091601658723997L;
+		private char[] alphabet;
+		private char[] droppableHintChars;
+		// TODO get this value dynamically !!!
+		private int hintLength = 10;
+	}
+
+	@Data @NoArgsConstructor @AllArgsConstructor
+	public static class FoundHintMessage implements Serializable {
+		private static final long serialVersionUID = 3304091601658723997L;
+		private String hint;
+	}
+
 	/////////////////
 	// Actor State //
 	/////////////////
@@ -62,6 +74,10 @@ public class Master extends AbstractLoggingActor {
 	private final ActorRef reader;
 	private final ActorRef collector;
 	private final List<ActorRef> workers;
+
+	private Map<String, String> cracked_hints_by_password;
+
+	private boolean workersInitiated = false;
 
 	private long startTime;
 	
@@ -91,8 +107,12 @@ public class Master extends AbstractLoggingActor {
 
 	protected void handle(StartMessage message) {
 		this.startTime = System.currentTimeMillis();
-		
+
 		this.reader.tell(new Reader.ReadMessage(), this.self());
+	}
+
+	protected void handle(FoundHintMessage msg) {
+		System.out.println("Yo, found a hint: " + msg.getHint());
 	}
 	
 	protected void handle(BatchMessage message) {
@@ -103,22 +123,44 @@ public class Master extends AbstractLoggingActor {
 		// 2. If we process the batches early, we can achieve latency hiding. /////////////////////////////////
 		// TODO: Implement the processing of the data for the concrete assignment. ////////////////////////////
 		///////////////////////////////////////////////////////////////////////////////////////////////////////
-		
-		if (message.getLines().isEmpty()) {
-			this.collector.tell(new Collector.PrintMessage(), this.self());
-			this.terminate();
-			return;
+
+		// initialize worker's workload
+		if (!this.workersInitiated) {
+			// TODO move to startMessageHandler
+			char[] alphabet = message.getLines().get(0)[2].toCharArray();
+
+			String[] workerCharAssignments = new String[workers.size()];
+			Arrays.fill(workerCharAssignments, "");
+
+			for(int i = 0; i < alphabet.length; i++){
+				workerCharAssignments[i % workers.size()] += alphabet[i];
+			}
+
+			for (int i = 0; i < workers.size(); i++) {
+				workers.get(i).tell(new StartHintCrackingMessage(alphabet, workerCharAssignments[i].toCharArray()), this.self());
+			}
+			this.workersInitiated = true;
 		}
+
+		// Store passwords in Master
+
+		// Distribute all Hints to all worker
+
+//
+//		if (message.getLines().isEmpty()) {
+//			this.collector.tell(new Collector.PrintMessage(), this.self());
+//			this.terminate();
+//			return;
+//		}
 
 	//	Iterator workersIterator = this.workers.iterator();
 		for (String[] line : message.getLines()){
 		//	if(!workersIterator.hasNext()){workersIterator = this.workers.iterator();}
-			System.out.println(this.workers.size());
+		//	System.out.println(this.workers.size());
           //  ActorRef worker = (ActorRef) workersIterator.next();
 		//	worker.tell(line,this.self());
-            this.workers.get(1).tell(line,this.self());
-			System.out.println(Arrays.toString(line));}
-
+		//	System.out.println(Arrays.toString(line));
+		}
 		
 		this.collector.tell(new Collector.CollectMessage("Processed batch of size " + message.getLines().size()), this.self());
 		this.reader.tell(new Reader.ReadMessage(), this.self());

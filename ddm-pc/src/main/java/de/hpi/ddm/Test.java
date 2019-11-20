@@ -31,9 +31,6 @@ public class Test {
         message[13] = "4b47ac115f6a91120d444638be98a97d009b9c13fa820d66796d2dad30d18975";
 
 
-
-
-
             // TO-Do Permutationen mit hashes irgendwo zentral erzeugen (auf jeden fall nicht jedes mal neu hier?)
             // z.B. https://stackoverflow.com/questions/8717375/how-to-effectively-store-a-large-set-of-permutations
             Set<Character> passwordChars = new HashSet();
