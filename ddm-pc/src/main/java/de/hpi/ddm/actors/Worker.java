@@ -94,57 +94,13 @@ public class Worker extends AbstractLoggingActor {
 	private void handle(Master.StartHintCrackingMessage msg){
 		// start working
 		for (char c : msg.getDroppableHintChars()) {
-			char[] localAlphabet = (new ArrayList<Character>(msg.getAlphabet()).remove(c)).toArray();
+			char[] localAlphabet = Arrays.asList(msg.getAlphabet()).remove(c).toString().toCharArray();
 			heapPermutation(localAlphabet, localAlphabet.length, msg.getHintLength());
 		}
 	}
 
 	private void handle(String[] message) {
 
-		// TO-Do Permutationen mit hashes irgendwo zentral erzeugen (auf jeden fall nicht jedes mal neu hier?)
-		// z.B. https://stackoverflow.com/questions/8717375/how-to-effectively-store-a-large-set-of-permutations
-		Set<Character> passwordChars = new HashSet();
-		for(char c : message[2].toCharArray()) {passwordChars.add(c);}
-		int passwordLength = Integer.valueOf(message[3]);
-		String passwordHash = message[4];
-		int amountOfHints = message.length - 5;
-		int foundHints = amountOfHints;
-		String password = "password cracking did not work";
-
-		// Generate all permutations for hints based on password chars (length -1)
-		ArrayList<String> hintPermutations = new ArrayList();
-
-		//In der folgenden Zeile gibt es einen GC overhead limit exceeded (outofmemoryerror)
-		//--> Es muss mit den Permutationen irgendwie effizienter umgegangen werden
-		heapPermutation(message[2].toCharArray(),message[2].toCharArray().length,message[2].toCharArray().length-1, hintPermutations);
-		System.out.println(hintPermutations);
-
-		for (String permutation: hintPermutations) {
-			if(foundHints == amountOfHints){break;}
-			String hash = hash(permutation);
-			// Check if any hashed permutation is a hint (5 to amount of hints)
-			for(int i = 5; i < message.length; i++) {
-
-				// if hint is found, apply hint
-				if(hash.equalsIgnoreCase(message[i])){
-					foundHints ++;
-				for(char c : passwordChars){
-					// Remove char that does not appear in hint from passwordchars
-					if(permutation.indexOf(c) < 0){passwordChars.remove(c);}}
-				}
-			}
-		}
-
-		// After applying all hints, generate permutation for remaining password chars and test password
-		ArrayList<String> passwordPermutations = new ArrayList<>();
-		heapPermutation(passwordChars.toString().toCharArray(),passwordChars.size(), passwordLength, passwordPermutations);
-		// Generate hash for each passwordPermutation and check if it is our desired password
-		for(String permutation: passwordPermutations){
-			String hash = hash(permutation);
-			if(passwordHash.equalsIgnoreCase(hash)){password = permutation; break;}
-		}
-
-		System.out.println(password);
 	}
 
 	private void handle(CurrentClusterState message) {
@@ -203,7 +159,7 @@ public class Worker extends AbstractLoggingActor {
 		}
 
 		for (int i = 0; i < size; i++) {
-			heapPermutation(a, size - 1, n, l);
+			heapPermutation(a, size - 1, n);
 
 			// If size is odd, swap first and last element
 			if (size % 2 == 1) {

@@ -57,8 +57,7 @@ public class Master extends AbstractLoggingActor {
 		private static final long serialVersionUID = 3303091601658723997L;
 		private char[] alphabet;
 		private char[] droppableHintChars;
-		// TODO get this value dynamically !!!
-		private int hintLength = 10;
+		private int hintLength;
 	}
 
 	@Data @NoArgsConstructor @AllArgsConstructor
@@ -137,7 +136,9 @@ public class Master extends AbstractLoggingActor {
 			}
 
 			for (int i = 0; i < workers.size(); i++) {
-				workers.get(i).tell(new StartHintCrackingMessage(alphabet, workerCharAssignments[i].toCharArray()), this.self());
+
+				// TODO get Length of hints dynamically !!!
+				workers.get(i).tell(new StartHintCrackingMessage(alphabet, workerCharAssignments[i].toCharArray(), 10), this.self());
 			}
 			this.workersInitiated = true;
 		}
