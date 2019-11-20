@@ -18,8 +18,11 @@ import akka.cluster.Member;
 import akka.cluster.MemberStatus;
 import de.hpi.ddm.MasterSystem;
 import lombok.Data;
+import org.apache.commons.collections4.iterators.PermutationIterator;
+import org.apache.commons.lang3.ArrayUtils;
 import scala.compat.java8.MakesSequentialStream;
 import sun.nio.cs.Surrogate;
+import sun.security.util.ArrayUtil;
 
 public class Worker extends AbstractLoggingActor {
 
@@ -94,8 +97,28 @@ public class Worker extends AbstractLoggingActor {
 	private void handle(Master.StartHintCrackingMessage msg){
 		// start working
 		for (char c : msg.getDroppableHintChars()) {
-			char[] localAlphabet = Arrays.asList(msg.getAlphabet()).remove(c).toString().toCharArray();
-			heapPermutation(localAlphabet, localAlphabet.length, msg.getHintLength());
+
+			char[] alphabet = msg.getAlphabet();
+			Collection<Character> localAlphabet = new HashSet<Character>();
+
+			for (char a : alphabet) {
+				if (a != c) {
+					localAlphabet.add(a);
+				}
+			}
+
+			PermutationIterator<Character> permutations = new PermutationIterator<Character>(localAlphabet);
+			System.out.println("Yo");
+			while (permutations.hasNext()) {
+				String currentTry = String.valueOf(permutations.next());
+				System.out.println(currentTry);
+				if (hintHashes.contains(hash(currentTry))) {
+					// Refactor not to do this in the recursion step but in parent function
+					this.getContext()
+							.actorSelection(masterSystem.address() + "/user/" + Master.DEFAULT_NAME)
+							.tell(new Master.FoundHintMessage(currentTry), this.self());
+				}
+			}
 		}
 	}
 
@@ -145,36 +168,4 @@ public class Worker extends AbstractLoggingActor {
 			throw new RuntimeException(e.getMessage());
 		}
 	}
-
-	// Generating all permutations of an array using Heap's Algorithm
-	// https://en.wikipedia.org/wiki/Heap's_algorithm
-	// https://www.geeksforgeeks.org/heaps-algorithm-for-generating-permutations/
-	private void heapPermutation(char[] a, int size, int n) {
-		// If size is 1, store the obtained permutation
-		if (size == 1 && hintHashes.contains(hash(String.valueOf(a)))) {
-			// Refactor not to do this in the recursion step but in parent function
-			this.getContext()
-					.actorSelection(masterSystem.address() + "/user/" + Master.DEFAULT_NAME)
-					.tell(new Master.FoundHintMessage(String.valueOf(a)), this.self());
-		}
-
-		for (int i = 0; i < size; i++) {
-			heapPermutation(a, size - 1, n);
-
-			// If size is odd, swap first and last element
-			if (size % 2 == 1) {
-				char temp = a[0];
-				a[0] = a[size - 1];
-				a[size - 1] = temp;
-			}
-
-			// If size is even, swap i-th and last element
-			else {
-				char temp = a[i];
-				a[i] = a[size - 1];
-				a[size - 1] = temp;
-			}
-		}
-	}
-
 }
