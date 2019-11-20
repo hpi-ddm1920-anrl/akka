@@ -105,6 +105,7 @@ public class LargeMessageProxy extends AbstractLoggingActor{
 		int messageChunkAmount = ((int) bytes.length / chunkSizeBytes) +1;
 
 		for (int i=0; i < messageChunkAmount; i++) {
+		    System.out.println("sent chunk "+i);
 			receiverProxy.tell(
 					new BytesMessage<>(
 							Arrays.copyOfRange(bytes, i * chunkSizeBytes, Math.min((i+1)*chunkSizeBytes, bytes.length)),
@@ -147,7 +148,7 @@ public class LargeMessageProxy extends AbstractLoggingActor{
 			Serialization serialization = SerializationExtension.get(system);
 			Object msg = (Object) serialization.deserialize(fullMessage, message.getSerialIdentifier(), message.getManifest());
 			message.getReceiver().tell(((Success) msg).value(), message.getSender());
-
+            this.log().info("Successfull forwarded reassembled message: " + ((Success) msg).value());
 			// Delete cached message chunks to indicate that we are done
 			this.cache.remove(messageHash);
 		}

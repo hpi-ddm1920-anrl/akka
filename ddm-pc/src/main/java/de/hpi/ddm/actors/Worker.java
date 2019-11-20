@@ -3,7 +3,10 @@ package de.hpi.ddm.actors;
 import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import akka.actor.AbstractLoggingActor;
 import akka.actor.ActorRef;
@@ -32,7 +35,13 @@ public class Worker extends AbstractLoggingActor {
 	public Worker() {
 		this.cluster = Cluster.get(this.context().system());
 	}
-	
+
+	// Bilde alle Permutationen
+
+	// JE LINE: 1. Bilde alle Permutationen aus PasswordChards für Länge PasswordLength - 1. Generiere für diese Permutationen sha wert bis hint 1-hint n gefunden.
+	// 2. Berechne auszuschließende Chars aus Hints
+	// 3. Generiere alle Permutationen für PasswordChars ohne auszuschließende Chars
+	// 4. Generiere für alle Permutationen Sha Werte bis Passwort gefunden
 	////////////////////
 	// Actor Messages //
 	////////////////////
@@ -70,8 +79,57 @@ public class Worker extends AbstractLoggingActor {
 				.match(CurrentClusterState.class, this::handle)
 				.match(MemberUp.class, this::handle)
 				.match(MemberRemoved.class, this::handle)
+				.match(String[].class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
+	}
+
+	private void handle(String[] message) {
+
+		// TO-Do Permutationen mit hashes irgendwo zentral erzeugen (auf jeden fall nicht jedes mal neu hier?)
+		// z.B. https://stackoverflow.com/questions/8717375/how-to-effectively-store-a-large-set-of-permutations
+		Set<Character> passwordChars = new HashSet();
+		for(char c : message[2].toCharArray()) {passwordChars.add(c);}
+		int passwordLength = Integer.valueOf(message[3]);
+		String passwordHash = message[4];
+		int amountOfHints = message.length - 5;
+		int foundHints = amountOfHints;
+		String password = "password cracking did not work";
+
+		// Generate all permutations for hints based on password chars (length -1)
+		ArrayList<String> hintPermutations = new ArrayList();
+
+		//In der folgenden Zeile gibt es einen GC overhead limit exceeded (outofmemoryerror)
+		//--> Es muss mit den Permutationen irgendwie effizienter umgegangen werden
+		heapPermutation(message[2].toCharArray(),message[2].toCharArray().length,message[2].toCharArray().length-1, hintPermutations);
+		System.out.println(hintPermutations);
+
+		for (String permutation: hintPermutations) {
+			if(foundHints == amountOfHints){break;}
+			String hash = hash(permutation);
+			// Check if any hashed permutation is a hint (5 to amount of hints)
+			for(int i = 5; i < message.length; i++) {
+
+				// if hint is found, apply hint
+				if(hash.equalsIgnoreCase(message[i])){
+					foundHints ++;
+				for(char c : passwordChars){
+					// Remove char that does not appear in hint from passwordchars
+					if(permutation.indexOf(c) < 0){passwordChars.remove(c);}}
+				}
+			}
+		}
+
+		// After applying all hints, generate permutation for remaining password chars and test password
+		ArrayList<String> passwordPermutations = new ArrayList<>();
+		heapPermutation(passwordChars.toString().toCharArray(),passwordChars.size(), passwordLength, passwordPermutations);
+		// Generate hash for each passwordPermutation and check if it is our desired password
+		for(String permutation: passwordPermutations){
+			String hash = hash(permutation);
+			if(passwordHash.equalsIgnoreCase(hash)){password = permutation; break;}
+		}
+
+		System.out.println(password);
 	}
 
 	private void handle(CurrentClusterState message) {
@@ -79,10 +137,11 @@ public class Worker extends AbstractLoggingActor {
 			if (member.status().equals(MemberStatus.up()))
 				this.register(member);
 		});
+
 	}
 
 	private void handle(MemberUp message) {
-		this.register(message.member());
+		this.register(message.member());System.out.println("angekommen");
 	}
 
 	private void register(Member member) {

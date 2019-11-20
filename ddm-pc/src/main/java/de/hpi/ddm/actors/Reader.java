@@ -75,6 +75,8 @@ public class Reader extends AbstractLoggingActor {
 				.build();
 	}
 
+
+
 	private void handle(ReadMessage message) throws Exception {
 		this.sender().tell(new Master.BatchMessage(new ArrayList<>(this.buffer)), this.self());
 		

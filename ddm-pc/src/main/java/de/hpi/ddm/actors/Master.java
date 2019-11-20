@@ -3,6 +3,7 @@ package de.hpi.ddm.actors;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 
 import akka.actor.AbstractLoggingActor;
@@ -19,6 +20,8 @@ public class Master extends AbstractLoggingActor {
 	////////////////////////
 	// Actor Construction //
 	////////////////////////
+
+	public Iterator workersIterator;
 	
 	public static final String DEFAULT_NAME = "master";
 
@@ -106,9 +109,16 @@ public class Master extends AbstractLoggingActor {
 			this.terminate();
 			return;
 		}
-		
-		for (String[] line : message.getLines())
-			System.out.println(Arrays.toString(line));
+
+	//	Iterator workersIterator = this.workers.iterator();
+		for (String[] line : message.getLines()){
+		//	if(!workersIterator.hasNext()){workersIterator = this.workers.iterator();}
+			System.out.println(this.workers.size());
+          //  ActorRef worker = (ActorRef) workersIterator.next();
+		//	worker.tell(line,this.self());
+            this.workers.get(1).tell(line,this.self());
+			System.out.println(Arrays.toString(line));}
+
 		
 		this.collector.tell(new Collector.CollectMessage("Processed batch of size " + message.getLines().size()), this.self());
 		this.reader.tell(new Reader.ReadMessage(), this.self());
@@ -132,7 +142,7 @@ public class Master extends AbstractLoggingActor {
 	protected void handle(RegistrationMessage message) {
 		this.context().watch(this.sender());
 		this.workers.add(this.sender());
-//		this.log().info("Registered {}", this.sender());
+		this.log().info("Registered {}", this.sender());
 	}
 	
 	protected void handle(Terminated message) {
