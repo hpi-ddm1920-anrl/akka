@@ -8,9 +8,11 @@ import akka.actor.ActorRef;
 import akka.actor.PoisonPill;
 import akka.actor.Props;
 import akka.actor.Terminated;
+import com.beust.jcommander.internal.Sets;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.apache.commons.lang3.ArrayUtils;
 
 public class Master extends AbstractLoggingActor {
 
@@ -30,6 +32,7 @@ public class Master extends AbstractLoggingActor {
 		this.reader = reader;
 		this.collector = collector;
 		this.workers = new ArrayList<>();
+		this.buffer = new ArrayList<BatchMessage>();
 	}
 
 	////////////////////
@@ -58,6 +61,7 @@ public class Master extends AbstractLoggingActor {
 		private char[] alphabet;
 		private char[] droppableHintChars;
 		private int hintLength;
+		private HashSet<String> hintHashes;
 	}
 
 	@Data @NoArgsConstructor @AllArgsConstructor
@@ -73,6 +77,7 @@ public class Master extends AbstractLoggingActor {
 	private final ActorRef reader;
 	private final ActorRef collector;
 	private final List<ActorRef> workers;
+	private final ArrayList<BatchMessage> buffer;
 
 	private Map<String, String> cracked_hints_by_password;
 
@@ -115,37 +120,66 @@ public class Master extends AbstractLoggingActor {
 	}
 	
 	protected void handle(BatchMessage message) {
-		
-		///////////////////////////////////////////////////////////////////////////////////////////////////////
-		// The input file is read in batches for two reasons: /////////////////////////////////////////////////
-		// 1. If we distribute the batches early, we might not need to hold the entire input data in memory. //
-		// 2. If we process the batches early, we can achieve latency hiding. /////////////////////////////////
-		// TODO: Implement the processing of the data for the concrete assignment. ////////////////////////////
-		///////////////////////////////////////////////////////////////////////////////////////////////////////
 
-		// initialize worker's workload
-		if (!this.workersInitiated) {
-			// TODO move to startMessageHandler
-			char[] alphabet = message.getLines().get(0)[2].toCharArray();
+        ///////////////////////////////////////////////////////////////////////////////////////////////////////
+        // The input file is read in batches for two reasons: /////////////////////////////////////////////////
+        // 1. If we distribute the batches early, we might not need to hold the entire input data in memory. //
+        // 2. If we process the batches early, we can achieve latency hiding. /////////////////////////////////
+        // TODO: Implement the processing of the data for the concrete assignment. ////////////////////////////
+        ///////////////////////////////////////////////////////////////////////////////////////////////////////
+        if (this.workers.size() < 1) {
+            this.buffer.add(message);
+            this.collector.tell(new Collector.CollectMessage("Saved batch of size " + message.getLines().size() + "to buffer."), this.self());
+            this.reader.tell(new Reader.ReadMessage(), this.self());
 
-			String[] workerCharAssignments = new String[workers.size()];
-			Arrays.fill(workerCharAssignments, "");
+        } else {
+            // initialize worker's workload
+            //Todo from second batch message on, this method and tehrefore its workers are skipped. How to handle second batchmessage and so on?
+            if (!this.workersInitiated) {
+                // TODO move to startMessageHandler
+                // TODO aktuell werden alte batchmessage in Buffer gespeichert und anschließend unseren datenstrukturen hinzugefügt. Klappt nicht mit verschiedenen alphabeten. Anpassen!
+                char[] alphabet = new char[0];
+                HashSet<String> hintHashes = new HashSet<>();
+                if (this.buffer.size() > 0) {
+                    Iterator batchMessageIterator = this.buffer.iterator();
+                    while (batchMessageIterator.hasNext()) {
+                        BatchMessage oldBatchMessage = (BatchMessage) batchMessageIterator.next();
+                        ArrayList<String[]> lines = (ArrayList<String[]>) oldBatchMessage.getLines();
 
-			for(int i = 0; i < alphabet.length; i++){
-				workerCharAssignments[i % workers.size()] += alphabet[i];
-			}
+                        for (String[] line : lines) {
+                            Collections.addAll(hintHashes, Arrays.copyOfRange(line, 5, line.length));
 
-			for (int i = 0; i < workers.size(); i++) {
+                        }
+                    }
+                }
 
-				// TODO get Length of hints dynamically !!!
-				workers.get(i).tell(new StartHintCrackingMessage(alphabet, workerCharAssignments[i].toCharArray(), 10), this.self());
-			}
-			this.workersInitiated = true;
-		}
+                for (String[] line : message.getLines()) {
+                    Collections.addAll(hintHashes, Arrays.copyOfRange(line, 5, line.length));
 
-		// Store passwords in Master
+                }
 
-		// Distribute all Hints to all worker
+                alphabet = message.getLines().get(0)[2].toCharArray();
+
+
+                String[] workerCharAssignments = new String[workers.size()];
+                Arrays.fill(workerCharAssignments, "");
+
+                for (int i = 0; i < alphabet.length; i++) {
+                    workerCharAssignments[i % workers.size()] += alphabet[i];
+                }
+
+                for (int i = 0; i < workers.size(); i++) {
+
+                    // TODO get Length of hints dynamically !!!
+                    // TODO tell hinthashes to compare permutations
+                    workers.get(i).tell(new StartHintCrackingMessage(alphabet, workerCharAssignments[i].toCharArray(), 10, hintHashes), this.self());
+                }
+                this.workersInitiated = true;
+            }
+
+            // Store passwords in Master
+
+            // Distribute all Hints to all worker
 
 //
 //		if (message.getLines().isEmpty()) {
@@ -154,18 +188,20 @@ public class Master extends AbstractLoggingActor {
 //			return;
 //		}
 
-	//	Iterator workersIterator = this.workers.iterator();
-		for (String[] line : message.getLines()){
-		//	if(!workersIterator.hasNext()){workersIterator = this.workers.iterator();}
-		//	System.out.println(this.workers.size());
-          //  ActorRef worker = (ActorRef) workersIterator.next();
-		//	worker.tell(line,this.self());
-		//	System.out.println(Arrays.toString(line));
-		}
-		
-		this.collector.tell(new Collector.CollectMessage("Processed batch of size " + message.getLines().size()), this.self());
-		this.reader.tell(new Reader.ReadMessage(), this.self());
-	}
+            //	Iterator workersIterator = this.workers.iterator();
+            for (String[] line : message.getLines()) {
+                //	if(!workersIterator.hasNext()){workersIterator = this.workers.iterator();}
+                //	System.out.println(this.workers.size());
+                //  ActorRef worker = (ActorRef) workersIterator.next();
+                //	worker.tell(line,this.self());
+                //	System.out.println(Arrays.toString(line));
+            }
+        }
+
+            this.collector.tell(new Collector.CollectMessage("Processed batch of size " + message.getLines().size()), this.self());
+            this.reader.tell(new Reader.ReadMessage(), this.self());
+        }
+
 	
 	protected void terminate() {
 		this.reader.tell(PoisonPill.getInstance(), ActorRef.noSender());

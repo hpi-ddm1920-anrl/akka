@@ -22,7 +22,6 @@ import org.apache.commons.collections4.iterators.PermutationIterator;
 import org.apache.commons.lang3.ArrayUtils;
 import scala.compat.java8.MakesSequentialStream;
 import sun.nio.cs.Surrogate;
-import sun.security.util.ArrayUtil;
 
 public class Worker extends AbstractLoggingActor {
 
@@ -89,7 +88,6 @@ public class Worker extends AbstractLoggingActor {
 				.match(MemberUp.class, this::handle)
 				.match(MemberRemoved.class, this::handle)
 				.match(Master.StartHintCrackingMessage.class, this::handle)
-				.match(String[].class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
 	}
@@ -100,6 +98,7 @@ public class Worker extends AbstractLoggingActor {
 
 			char[] alphabet = msg.getAlphabet();
 			Collection<Character> localAlphabet = new HashSet<Character>();
+			HashSet<String> hintHashes = msg.getHintHashes();
 
 			for (char a : alphabet) {
 				if (a != c) {
@@ -108,23 +107,24 @@ public class Worker extends AbstractLoggingActor {
 			}
 
 			PermutationIterator<Character> permutations = new PermutationIterator<Character>(localAlphabet);
-			System.out.println("Yo");
+			int counter = 1;
 			while (permutations.hasNext()) {
-				String currentTry = String.valueOf(permutations.next());
-				System.out.println(currentTry);
+			    this.log().info(String.valueOf(counter));
+			    counter++;
+
+			    String currentTry = new String();
+                Iterator permutationIterator = ((ArrayList<Character>) permutations.next()).iterator();
+                while(permutationIterator.hasNext()){currentTry = currentTry.concat(((Character) permutationIterator.next()).toString());}
+				//System.out.println(currentTry);
 				if (hintHashes.contains(hash(currentTry))) {
 					// Refactor not to do this in the recursion step but in parent function
-					this.getContext()
-							.actorSelection(masterSystem.address() + "/user/" + Master.DEFAULT_NAME)
-							.tell(new Master.FoundHintMessage(currentTry), this.self());
+					this.getContext().actorSelection(masterSystem.address() + "/user/" + Master.DEFAULT_NAME).tell(new Master.FoundHintMessage(currentTry), this.self());
+				    this.log().info("Found Hash Match " + currentTry);
 				}
-			}
+            }
 		}
 	}
 
-	private void handle(String[] message) {
-
-	}
 
 	private void handle(CurrentClusterState message) {
 		message.getMembers().forEach(member -> {
