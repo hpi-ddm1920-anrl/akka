@@ -1,6 +1,7 @@
 package de.hpi.ddm.actors;
 
 import java.io.Serializable;
+import java.lang.reflect.Array;
 import java.util.*;
 
 import akka.actor.AbstractLoggingActor;
@@ -8,11 +9,13 @@ import akka.actor.ActorRef;
 import akka.actor.PoisonPill;
 import akka.actor.Props;
 import akka.actor.Terminated;
+import akka.io.SimpleDnsCache;
 import com.beust.jcommander.internal.Sets;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.apache.commons.lang3.ArrayUtils;
+import sun.security.util.ArrayUtil;
 
 public class Master extends AbstractLoggingActor {
 
@@ -79,7 +82,8 @@ public class Master extends AbstractLoggingActor {
 	private final List<ActorRef> workers;
 	private final ArrayList<BatchMessage> buffer;
 
-	private Map<String, String> cracked_hints_by_password;
+	private Map<String, Set<String>> password_hash_directory;
+	private Map<String, Set<Character>> cracked_hints_by_password;
 
 	private boolean workersInitiated = false;
 
@@ -103,6 +107,7 @@ public class Master extends AbstractLoggingActor {
 		return receiveBuilder()
 				.match(StartMessage.class, this::handle)
 				.match(BatchMessage.class, this::handle)
+				.match(FoundHintMessage.class, this::handle)
 				.match(Terminated.class, this::handle)
 				.match(RegistrationMessage.class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
@@ -116,9 +121,25 @@ public class Master extends AbstractLoggingActor {
 	}
 
 	protected void handle(FoundHintMessage msg) {
-		System.out.println("Yo, found a hint: " + msg.getHint());
+
+		String password_hash = "";
+		// TODO to future Lukas continue here
+
+		// reconsile HintHash with passwordHash
+//		for (Map.Entry<String, Set<String>> pw : password_hash_directory){
+//			if (pw.getValue().contains(msg.getHint())) {
+//				password_hash = pw.getKey();
+//			}
+//		}
+//
+//		//
+//		ArrayUtils.remove(alphabet, );
+//		ArrayUtils.
+//
+//		//
+//		cracked_hints_by_password.get(password_hash).add();
 	}
-	
+
 	protected void handle(BatchMessage message) {
 
         ///////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -154,8 +175,18 @@ public class Master extends AbstractLoggingActor {
                 }
 
                 for (String[] line : message.getLines()) {
-                    Collections.addAll(hintHashes, Arrays.copyOfRange(line, 5, line.length));
+                	String password_hash = line[3];
+                	Set<String> currentHintHashes = new HashSet<String>();
+                	Collections.addAll(currentHintHashes, Arrays.copyOfRange(line, 5, line.length));
 
+                	// add to hint hash workin packages for Workers
+                	hintHashes.addAll(currentHintHashes);
+
+                	// Store current entry for later matching
+                    password_hash_directory.put(password_hash, currentHintHashes);
+
+                    // generate data structure that holds the hint results
+                	cracked_hints_by_password.put(password_hash, new HashSet<Character>());
                 }
 
                 alphabet = message.getLines().get(0)[2].toCharArray();
@@ -169,9 +200,7 @@ public class Master extends AbstractLoggingActor {
                 }
 
                 for (int i = 0; i < workers.size(); i++) {
-
                     // TODO get Length of hints dynamically !!!
-                    // TODO tell hinthashes to compare permutations
                     workers.get(i).tell(new StartHintCrackingMessage(alphabet, workerCharAssignments[i].toCharArray(), 10, hintHashes), this.self());
                 }
                 this.workersInitiated = true;

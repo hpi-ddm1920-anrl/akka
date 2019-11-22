@@ -1,6 +1,5 @@
 package de.hpi.ddm.actors;
 
-import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -17,11 +16,8 @@ import akka.cluster.ClusterEvent.MemberUp;
 import akka.cluster.Member;
 import akka.cluster.MemberStatus;
 import de.hpi.ddm.MasterSystem;
-import lombok.Data;
 import org.apache.commons.collections4.iterators.PermutationIterator;
-import org.apache.commons.lang3.ArrayUtils;
-import scala.compat.java8.MakesSequentialStream;
-import sun.nio.cs.Surrogate;
+
 
 public class Worker extends AbstractLoggingActor {
 
@@ -92,8 +88,9 @@ public class Worker extends AbstractLoggingActor {
 				.build();
 	}
 
-	private void handle(Master.StartHintCrackingMessage msg){
+	private void handle(Master.StartHintCrackingMessage msg) {
 		// start working
+		this.log().info("Started Hint Cracking with Letters: " + String.valueOf(msg.getDroppableHintChars()));
 		for (char c : msg.getDroppableHintChars()) {
 
 			char[] alphabet = msg.getAlphabet();
@@ -109,19 +106,18 @@ public class Worker extends AbstractLoggingActor {
 			PermutationIterator<Character> permutations = new PermutationIterator<Character>(localAlphabet);
 			int counter = 1;
 			while (permutations.hasNext()) {
-			    this.log().info(String.valueOf(counter));
-			    counter++;
-
-			    String currentTry = new String();
-                Iterator permutationIterator = ((ArrayList<Character>) permutations.next()).iterator();
-                while(permutationIterator.hasNext()){currentTry = currentTry.concat(((Character) permutationIterator.next()).toString());}
-				//System.out.println(currentTry);
+				if (counter % 1000000 == 0) {
+					this.log().info("Tried " + counter + " Hint Hashes for Letter " + c);
+				}
+				String currentTry = Worker.charCollectionToString(permutations.next());
 				if (hintHashes.contains(hash(currentTry))) {
 					// Refactor not to do this in the recursion step but in parent function
 					this.getContext().actorSelection(masterSystem.address() + "/user/" + Master.DEFAULT_NAME).tell(new Master.FoundHintMessage(currentTry), this.self());
-				    this.log().info("Found Hash Match " + currentTry);
+					this.log().info("Found Hash Match " + currentTry);
 				}
-            }
+
+				counter++;
+			}
 		}
 	}
 
@@ -168,4 +164,13 @@ public class Worker extends AbstractLoggingActor {
 			throw new RuntimeException(e.getMessage());
 		}
 	}
+
+	public static String charCollectionToString(Collection<Character> charArray) {
+		StringBuilder sb = new StringBuilder();
+		for (Character ch : charArray) {
+			sb.append(ch);
+		}
+		return sb.toString();
+	}
+
 }
