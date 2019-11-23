@@ -19,8 +19,7 @@ public class Master extends AbstractLoggingActor {
 	// Actor Construction //
 	////////////////////////
 
-	public Iterator workersIterator;
-	
+
 	public static final String DEFAULT_NAME = "master";
 
 	public static Props props(final ActorRef reader, final ActorRef collector) {
@@ -82,6 +81,13 @@ public class Master extends AbstractLoggingActor {
 		private String hintHash;
 	}
 
+	@Data @NoArgsConstructor @AllArgsConstructor
+	public static class CrackedPassword implements Serializable {
+		private static final long serialVersionUID = 3303090001658723997L;
+		private String passwordHash;
+		private String crackedHash;
+	}
+
 	/////////////////
 	// Actor State //
 	/////////////////
@@ -93,6 +99,8 @@ public class Master extends AbstractLoggingActor {
 
 	private Map<String, Set<String>> password_hash_directory = new HashMap<>();
 	private Map<String, Set<Character>> cracked_hints_by_password = new HashMap<>();
+	private Map<String, String> passwordTable = new HashMap();
+
 
 	private Set<Character> alphabet = new HashSet<>();
 
@@ -101,7 +109,8 @@ public class Master extends AbstractLoggingActor {
 	private long startTime;
 
 	// TODO set dynamically
-	private int hintThreshold = 4;
+	//TODO habe beim experimentieren gemerkt, dass 7 echt ein guter threshold ist. Password cracking geht schnell und das hint cracking schnell genug
+	private int hintThreshold = 7;
 
 	/////////////////////
 	// Actor Lifecycle //
@@ -124,6 +133,7 @@ public class Master extends AbstractLoggingActor {
 				.match(FoundHintMessage.class, this::handle)
 				.match(Terminated.class, this::handle)
 				.match(RegistrationMessage.class, this::handle)
+				.match(CrackedPassword.class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
 	}
@@ -132,6 +142,12 @@ public class Master extends AbstractLoggingActor {
 		this.startTime = System.currentTimeMillis();
 
 		this.reader.tell(new Reader.ReadMessage(), this.self());
+	}
+
+	protected void handle(CrackedPassword msg){
+		passwordTable.put(msg.getPasswordHash(),msg.getCrackedHash());
+		//TODO Terminate if all passwords found dynamically
+		if(passwordTable.size()==100){terminate();};
 	}
 
 	protected void handle(FoundHintMessage msg) {
@@ -149,11 +165,12 @@ public class Master extends AbstractLoggingActor {
 			// TODO distrubute work evenly
 
 
-			workers.get(0).tell(
+			workers.get(new Random().nextInt(this.workers.size())).tell(
 					new StartPasswordCrackingMessage(password_hash, toCharArray(Sets.difference(alphabet, cracked_hints))),
 					this.self()
 			);
 			// TODO abort currently running cracking attempt when new Hint becomes available
+			// TODO Alternative - abort cracking hints, if passwordcracking started once -> ich bekomme sonst irgendwann "Exception: java.lang.OutOfMemoryError thrown from the UncaughtExceptionHandler in thread "ddm-scheduler-1" und Exception: java.lang.OutOfMemoryError thrown from the UncaughtExceptionHandler in thread "ddm-akka.io.pinned-dispatcher-7"
 		}
 	}
 

@@ -4,6 +4,7 @@ import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import akka.actor.AbstractLoggingActor;
 import akka.actor.ActorRef;
@@ -17,6 +18,7 @@ import akka.cluster.Member;
 import akka.cluster.MemberStatus;
 import de.hpi.ddm.MasterSystem;
 import org.apache.commons.collections4.iterators.PermutationIterator;
+import org.paukov.combinatorics3.Generator;
 
 
 public class Worker extends AbstractLoggingActor {
@@ -87,12 +89,45 @@ public class Worker extends AbstractLoggingActor {
 				.match(Master.MoreHintsIncomingMessage.class, this::handle)
 				.match(MemberRemoved.class, this::handle)
 				.match(Master.StartHintCrackingMessage.class, this::handle)
+				.match(Master.StartPasswordCrackingMessage.class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
 	}
 
 	private void handle(Master.MoreHintsIncomingMessage msg) {
 		hintHashes.addAll(msg.getHintHashes());
+	}
+
+	private void handle(Master.StartPasswordCrackingMessage msg){
+		this.log().info("Starte Password Cracking handle");
+
+
+        List<String> list = new ArrayList<String>();
+        for (char c :  msg.getAlphabet()){list.add(String.valueOf(c));}
+        String passwordHash = msg.getPasswordHash();
+
+        // TODO get Length of passwords dynamically !!!
+        Optional<List<String>> crackedPasswordList = Generator.permutation(list)
+                .withRepetitions(10)
+                .stream()
+                .filter( permutation ->
+                    hash(String.join(", ", permutation).replace(", ","")).equalsIgnoreCase(passwordHash))
+                .findFirst();
+
+        String crackedPassword = String.join(", ", crackedPasswordList.get()).replace(", ","");
+        this.log().info("Cracked Password " + crackedPassword);
+        getContext().actorSelection(masterSystem.address() + "/user/" + Master.DEFAULT_NAME)
+                .tell(new Master.CrackedPassword(passwordHash,crackedPassword), self());
+        //TODO terminate application execution if all passwords cracked
+
+
+
+
+
+
+
+
+
 	}
 
 
@@ -188,5 +223,7 @@ public class Worker extends AbstractLoggingActor {
 		}
 		return sb.toString();
 	}
+
+
 
 }
