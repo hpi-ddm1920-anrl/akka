@@ -36,9 +36,11 @@ public class Worker extends AbstractLoggingActor {
 		this.cluster = Cluster.get(this.context().system());
 	}
 
-	private HashSet<String> hintHashes;
+	private HashSet<String> hintHashes = new HashSet<>();
 	private char[] alphabet;
 	private char[] assignedLetters;
+
+	private Thread hintCrackingThread;
 
 	// Bilde alle Permutationen
 
@@ -82,43 +84,57 @@ public class Worker extends AbstractLoggingActor {
 		return receiveBuilder()
 				.match(CurrentClusterState.class, this::handle)
 				.match(MemberUp.class, this::handle)
+				.match(Master.MoreHintsIncomingMessage.class, this::handle)
 				.match(MemberRemoved.class, this::handle)
 				.match(Master.StartHintCrackingMessage.class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
 	}
 
+	private void handle(Master.MoreHintsIncomingMessage msg) {
+		hintHashes.addAll(msg.getHintHashes());
+	}
+
+
+	class HintCracker implements Runnable {
+		@Override
+		public void run() {
+			for (char c : assignedLetters) {
+				Collection<Character> localAlphabet = new HashSet<Character>();
+
+				for (char a : alphabet) {
+					if (a != c) {
+						localAlphabet.add(a);
+					}
+				}
+
+				PermutationIterator<Character> permutations = new PermutationIterator<Character>(localAlphabet);
+				int counter = 1;
+				while (permutations.hasNext()) {
+					if (counter % 100000 == 0) {
+						log().info("Tried " + counter + " Hint Hashes for Letter " + c);
+					}
+					String currentTry = Worker.charCollectionToString(permutations.next());
+					if (hintHashes.contains(hash(currentTry))) {
+						// Refactor not to do this in the recursion step but in parent function
+						getContext().actorSelection(masterSystem.address() + "/user/" + Master.DEFAULT_NAME)
+								.tell(new Master.FoundHintMessage(currentTry, hash(currentTry)), self());
+						log().info("Found Hash Match " + currentTry);
+					}
+					counter++;
+				}
+			}
+		}
+	}
+
 	private void handle(Master.StartHintCrackingMessage msg) {
 		// start working
 		this.log().info("Started Hint Cracking with Letters: " + String.valueOf(msg.getDroppableHintChars()));
-		for (char c : msg.getDroppableHintChars()) {
+		assignedLetters = msg.getDroppableHintChars();
+		alphabet = msg.getAlphabet();
 
-			char[] alphabet = msg.getAlphabet();
-			Collection<Character> localAlphabet = new HashSet<Character>();
-			HashSet<String> hintHashes = msg.getHintHashes();
-
-			for (char a : alphabet) {
-				if (a != c) {
-					localAlphabet.add(a);
-				}
-			}
-
-			PermutationIterator<Character> permutations = new PermutationIterator<Character>(localAlphabet);
-			int counter = 1;
-			while (permutations.hasNext()) {
-				if (counter % 1000000 == 0) {
-					this.log().info("Tried " + counter + " Hint Hashes for Letter " + c);
-				}
-				String currentTry = Worker.charCollectionToString(permutations.next());
-				if (hintHashes.contains(hash(currentTry))) {
-					// Refactor not to do this in the recursion step but in parent function
-					this.getContext().actorSelection(masterSystem.address() + "/user/" + Master.DEFAULT_NAME).tell(new Master.FoundHintMessage(currentTry), this.self());
-					this.log().info("Found Hash Match " + currentTry);
-				}
-
-				counter++;
-			}
-		}
+		hintCrackingThread = new Thread(new HintCracker());
+		hintCrackingThread.start();
 	}
 
 
