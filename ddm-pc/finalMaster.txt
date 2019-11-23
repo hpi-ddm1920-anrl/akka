@@ -1287,3 +1287,15 @@ Exception: java.lang.OutOfMemoryError thrown from the UncaughtExceptionHandler i
 [ERROR] For more information about the errors and possible solutions, please read the following articles:
 [ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/OutOfMemoryError
 [20:41:53.985  INFO]         akka.cluster.Cluster(akka://ddm)| Cluster Node [akka://ddm@192.168.2.33:7877] - Marked address [akka://ddm@192.168.2.33:7877] as [Leaving]
+
+Exception: java.lang.OutOfMemoryError thrown from the UncaughtExceptionHandler in thread "Thread-1"
+
+Exception: java.lang.OutOfMemoryError thrown from the UncaughtExceptionHandler in thread "ddm-shutdown-hook-1"
+Uncaught error from thread [Uncaught error from thread [ddm-akka.actor.default-dispatcher-8]: Java heap space, shutting down JVM since 'akka.jvm-exit-on-fatal-error' is enabled forddm-akka.actor.default-dispatcher-10]: Java heap space, shutting down JVM since 'akka.jvm-exit-on-fatal-error' is enabled for ActorSystem[ ActorSystem[ddm]
+ddm]
+java.lang.OutOfMemoryError: Java heap space
+java.lang.OutOfMemoryError: Java heap space
+Uncaught error from thread [ddm-akka.actor.default-dispatcher-13]: Java heap space, shutting down JVM since 'akka.jvm-exit-on-fatal-error' is enabled for ActorSystem[ddm]
+java.lang.OutOfMemoryError: Java heap space
+Uncaught error from thread [ddm-akka.actor.default-dispatcher-36]: Java heap space, shutting down JVM since 'akka.jvm-exit-on-fatal-error' is enabled for ActorSystem[ddm]
+java.lang.OutOfMemoryError: Java heap space
