@@ -73,6 +73,7 @@ public class Master extends AbstractLoggingActor {
 		private static final long serialVersionUID = 3303091601658723998L;
 		private String passwordHash;
 		private char[] alphabet;
+		private int passwordLength;
 	}
 
 	@Data @NoArgsConstructor @AllArgsConstructor
@@ -170,7 +171,7 @@ public class Master extends AbstractLoggingActor {
 			// Check if password cracking can start
 			if (cracked_hints.size() >= hintThreshold) {
 				workers.get(new Random().nextInt(this.workers.size())).tell(
-						new StartPasswordCrackingMessage(password_hash, toCharArray(Sets.difference(alphabet, cracked_hints))),
+						new StartPasswordCrackingMessage(password_hash, toCharArray(Sets.difference(alphabet, cracked_hints)), passwordLength),
 						this.self()
 				);
 				crackedHintsByPassword.remove(password_hash);

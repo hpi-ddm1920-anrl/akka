@@ -137,8 +137,7 @@ public class Worker extends AbstractLoggingActor {
         List<String> list = new ArrayList<String>();
         for (char c :  msg.getAlphabet()){list.add(String.valueOf(c));}
         String passwordHash = msg.getPasswordHash();
-                // TODO get Length of passwords dynamically !!!
-		int passwordLength = 10;
+		int passwordLength = msg.getPasswordLength();
 
 
         passwordCrackingThread = new Thread(new PasswordCracker(passwordHash, passwordLength, list));
