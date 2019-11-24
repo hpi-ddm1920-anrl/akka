@@ -96,11 +96,11 @@ public class LargeMessageProxy extends AbstractLoggingActor{
         this.log().info("Nachricht Output: " + message.getMessage());
         this.log().info(serializer.toBinary(message.getMessage()).toString());
 
-		int chunkSizeBytes = 10000;  // 10 KB
+		int chunkSizeBytes = 100000;  // 10 KB
 		int messageChunkAmount = ((int) bytes.length / chunkSizeBytes) +1;
 
 		for (int i=0; i < messageChunkAmount; i++) {
-			System.out.println("sent chunk");
+			this.log().info("Sent Chunck "+(i+1)+"/"+messageChunkAmount);
 			receiverProxy.tell(
 					new BytesMessage<>(
 							Arrays.copyOfRange(bytes, i * chunkSizeBytes, Math.min((i+1)*chunkSizeBytes, bytes.length)),
@@ -118,11 +118,11 @@ public class LargeMessageProxy extends AbstractLoggingActor{
 		// save current message to cache
 		this.cache.putIfAbsent(messageHash, new HashMap<Integer, BytesMessage>());
 		this.cache.get(messageHash).put(message.getChunkId(), message);
-			System.out.println("Received chunk");
+			log().info("Received chunk "+ this.cache.get(messageHash).size() +"/"+message.getMessageChunkAmount());
 
 		// check if current ByteMessage completes large message
 		if (this.cache.get(messageHash).size() >= message.getMessageChunkAmount()) {
-			System.out.println("Chunk completed");
+			log().info("Chunk completed");
 			// send all messages that are completed to parent
 			Iterator cachedMessages = this.cache.get(messageHash).entrySet().iterator();
 			ByteArrayOutputStream reassembledMessage = new ByteArrayOutputStream();
