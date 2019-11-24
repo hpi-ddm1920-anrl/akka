@@ -103,21 +103,21 @@ public class Worker extends AbstractLoggingActor {
 	}
 
 
-	private void handle(Master.StartPasswordCrackingMessage msg) throws InterruptedException {
-		this.log().info("Starte Password Cracking handle");
+	class PasswordCracker implements Runnable {
 
+		String passwordHash;
+		int passwordLength;
+		List<String> alphabet;
 
-        List<String> list = new ArrayList<String>();
-        for (char c :  msg.getAlphabet()){list.add(String.valueOf(c));}
-        String passwordHash = msg.getPasswordHash();
-                // TODO get Length of passwords dynamically !!!
-		int passwordLength = 10;
+		public PasswordCracker(String passwordHash, int passwordLength, List<String> alphabet) {
+			this.passwordHash = passwordHash;
+			this.passwordLength = passwordLength;
+			this.alphabet = alphabet;
+		}
 
-		class PasswordCracker implements Runnable {
-			@Override
+		@Override
 			public void run() {
-//				hintCrackingThread.interrupt();
-			Optional<List<String>> crackedPasswordList = Generator.permutation(list)
+			Optional<List<String>> crackedPasswordList = Generator.permutation(alphabet)
 					.withRepetitions(passwordLength)
 					.stream()
 					.filter( permutation ->
@@ -128,15 +128,25 @@ public class Worker extends AbstractLoggingActor {
 				log().info("Cracked Password " + crackedPassword);
 				getContext().actorSelection(masterSystem.address() + "/user/" + Master.DEFAULT_NAME)
 					.tell(new Master.CrackedPassword(crackedPassword, passwordHash), self());
-//				hintCrackingThread.resume();
 			}
 		}
+
+	private void handle(Master.StartPasswordCrackingMessage msg) throws InterruptedException {
+		this.log().info("Starte Password Cracking handle");
+
+        List<String> list = new ArrayList<String>();
+        for (char c :  msg.getAlphabet()){list.add(String.valueOf(c));}
+        String passwordHash = msg.getPasswordHash();
+                // TODO get Length of passwords dynamically !!!
+		int passwordLength = 10;
+
+
+        passwordCrackingThread = new Thread(new PasswordCracker(passwordHash, passwordLength, list));
 
 		if (passwordCrackingThread != null && passwordCrackingThread.isAlive()) {
 			passwordCrackingThread.join();
 		}
 
-        passwordCrackingThread = new Thread(new PasswordCracker());
 		passwordCrackingThread.start();
 	}
 
@@ -168,7 +178,9 @@ public class Worker extends AbstractLoggingActor {
 					}
 					counter++;
 				}
+				log().info("Finsished HintCracking for  " + c);
 			}
+			log().info("Finsished HintCracking for Worker" + self().toString());
 		}
 	}
 

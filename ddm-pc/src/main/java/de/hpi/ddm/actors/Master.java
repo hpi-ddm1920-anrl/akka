@@ -148,8 +148,11 @@ public class Master extends AbstractLoggingActor {
 		passwordTable.put(msg.getPasswordHash(),msg.getCrackedHash());
 
 		log().info("Cracked Password "+passwordTable.size()+"/"+ passwordHashDirectory.size());
+//		this.collector.tell(Collector.CollectMessage(msg.getCrackedHash()));
 
-		if(passwordTable.size() >= passwordHashDirectory.size()){terminate();};
+		if(passwordTable.size() >= passwordHashDirectory.size()){
+			terminate();
+		};
 	}
 
 	protected void handle(FoundHintMessage msg) {
@@ -170,6 +173,7 @@ public class Master extends AbstractLoggingActor {
 						new StartPasswordCrackingMessage(password_hash, toCharArray(Sets.difference(alphabet, cracked_hints))),
 						this.self()
 				);
+				crackedHintsByPassword.remove(password_hash);
 			}
 		}
 	}
@@ -192,7 +196,7 @@ public class Master extends AbstractLoggingActor {
 
         } else {
             // initialize worker's workload
-            if (!this.workersInitiated) {
+            if (!this.workersInitiated && message.getLines().size() > 0) {
             	String [] firstLine = message.getLines().get(0);
                 // populate alphabet
 				alphabet.addAll(firstLine[2].chars().mapToObj(c -> (char) c).collect(toSet()));
