@@ -4,6 +4,7 @@ import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import java.util.concurrent.locks.Lock;
 import java.util.stream.Collectors;
 
 import akka.actor.AbstractLoggingActor;
@@ -43,6 +44,9 @@ public class Worker extends AbstractLoggingActor {
 	private char[] assignedLetters;
 
 	private Thread hintCrackingThread;
+	private Thread passwordCrackingThread;
+
+	private Lock executionLock;
 
 	// Bilde alle Permutationen
 
@@ -98,36 +102,42 @@ public class Worker extends AbstractLoggingActor {
 		hintHashes.addAll(msg.getHintHashes());
 	}
 
-	private void handle(Master.StartPasswordCrackingMessage msg){
+
+	private void handle(Master.StartPasswordCrackingMessage msg) throws InterruptedException {
 		this.log().info("Starte Password Cracking handle");
 
 
         List<String> list = new ArrayList<String>();
         for (char c :  msg.getAlphabet()){list.add(String.valueOf(c));}
         String passwordHash = msg.getPasswordHash();
+                // TODO get Length of passwords dynamically !!!
+		int passwordLength = 10;
 
-        // TODO get Length of passwords dynamically !!!
-        Optional<List<String>> crackedPasswordList = Generator.permutation(list)
-                .withRepetitions(10)
-                .stream()
-                .filter( permutation ->
-                    hash(String.join(", ", permutation).replace(", ","")).equalsIgnoreCase(passwordHash))
-                .findFirst();
+		class PasswordCracker implements Runnable {
+			@Override
+			public void run() {
+//				hintCrackingThread.interrupt();
+			Optional<List<String>> crackedPasswordList = Generator.permutation(list)
+					.withRepetitions(passwordLength)
+					.stream()
+					.filter( permutation ->
+						hash(String.join(", ", permutation).replace(", ","")).equalsIgnoreCase(passwordHash))
+					.findFirst();
 
-        String crackedPassword = String.join(", ", crackedPasswordList.get()).replace(", ","");
-        this.log().info("Cracked Password " + crackedPassword);
-        getContext().actorSelection(masterSystem.address() + "/user/" + Master.DEFAULT_NAME)
-                .tell(new Master.CrackedPassword(passwordHash,crackedPassword), self());
-        //TODO terminate application execution if all passwords cracked
+				String crackedPassword = String.join(", ", crackedPasswordList.get()).replace(", ","");
+				log().info("Cracked Password " + crackedPassword);
+				getContext().actorSelection(masterSystem.address() + "/user/" + Master.DEFAULT_NAME)
+					.tell(new Master.CrackedPassword(crackedPassword, passwordHash), self());
+//				hintCrackingThread.resume();
+			}
+		}
 
+		if (passwordCrackingThread != null && passwordCrackingThread.isAlive()) {
+			passwordCrackingThread.join();
+		}
 
-
-
-
-
-
-
-
+        passwordCrackingThread = new Thread(new PasswordCracker());
+		passwordCrackingThread.start();
 	}
 
 
@@ -178,7 +188,6 @@ public class Worker extends AbstractLoggingActor {
 			if (member.status().equals(MemberStatus.up()))
 				this.register(member);
 		});
-
 	}
 
 	private void handle(MemberUp message) {

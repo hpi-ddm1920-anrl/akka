@@ -21,6 +21,7 @@ public class Master extends AbstractLoggingActor {
 
 
 	public static final String DEFAULT_NAME = "master";
+	private int passwordLength;
 
 	public static Props props(final ActorRef reader, final ActorRef collector) {
 		return Props.create(Master.class, () -> new Master(reader, collector));
@@ -97,8 +98,8 @@ public class Master extends AbstractLoggingActor {
 	private final List<ActorRef> workers;
 	private final ArrayList<BatchMessage> buffer;
 
-	private Map<String, Set<String>> password_hash_directory = new HashMap<>();
-	private Map<String, Set<Character>> cracked_hints_by_password = new HashMap<>();
+	private Map<String, Set<String>> passwordHashDirectory = new HashMap<>();
+	private Map<String, Set<Character>> crackedHintsByPassword = new HashMap<>();
 	private Map<String, String> passwordTable = new HashMap();
 
 
@@ -108,9 +109,7 @@ public class Master extends AbstractLoggingActor {
 
 	private long startTime;
 
-	// TODO set dynamically
-	//TODO habe beim experimentieren gemerkt, dass 7 echt ein guter threshold ist. Password cracking geht schnell und das hint cracking schnell genug
-	private int hintThreshold = 7;
+	private int hintThreshold;
 
 	/////////////////////
 	// Actor Lifecycle //
@@ -145,9 +144,12 @@ public class Master extends AbstractLoggingActor {
 	}
 
 	protected void handle(CrackedPassword msg){
+		crackedHintsByPassword.remove(msg.getPasswordHash());
 		passwordTable.put(msg.getPasswordHash(),msg.getCrackedHash());
-		//TODO Terminate if all passwords found dynamically
-		if(passwordTable.size()==100){terminate();};
+
+		log().info("Cracked Password "+passwordTable.size()+"/"+ passwordHashDirectory.size());
+
+		if(passwordTable.size() >= passwordHashDirectory.size()){terminate();};
 	}
 
 	protected void handle(FoundHintMessage msg) {
@@ -157,20 +159,18 @@ public class Master extends AbstractLoggingActor {
 		// Add excluded char to Password Hash
 		Character exludedChar = Sets.difference(alphabet, hintChars).immutableCopy().asList().get(0);
 
-		Set<Character> cracked_hints = cracked_hints_by_password.get(password_hash);
-		cracked_hints.add(exludedChar);
+		Set<Character> cracked_hints = crackedHintsByPassword.get(password_hash);
+		if (cracked_hints != null) {
+			// if null the password was already cracked
+			cracked_hints.add(exludedChar);
 
-		// Check if password cracking can start
-		if (cracked_hints.size() >= hintThreshold) {
-			// TODO distrubute work evenly
-
-
-			workers.get(new Random().nextInt(this.workers.size())).tell(
-					new StartPasswordCrackingMessage(password_hash, toCharArray(Sets.difference(alphabet, cracked_hints))),
-					this.self()
-			);
-			// TODO abort currently running cracking attempt when new Hint becomes available
-			// TODO Alternative - abort cracking hints, if passwordcracking started once -> ich bekomme sonst irgendwann "Exception: java.lang.OutOfMemoryError thrown from the UncaughtExceptionHandler in thread "ddm-scheduler-1" und Exception: java.lang.OutOfMemoryError thrown from the UncaughtExceptionHandler in thread "ddm-akka.io.pinned-dispatcher-7"
+			// Check if password cracking can start
+			if (cracked_hints.size() >= hintThreshold) {
+				workers.get(new Random().nextInt(this.workers.size())).tell(
+						new StartPasswordCrackingMessage(password_hash, toCharArray(Sets.difference(alphabet, cracked_hints))),
+						this.self()
+				);
+			}
 		}
 	}
 
@@ -185,12 +185,6 @@ public class Master extends AbstractLoggingActor {
 
 	protected void handle(BatchMessage message) {
 
-        ///////////////////////////////////////////////////////////////////////////////////////////////////////
-        // The input file is read in batches for two reasons: /////////////////////////////////////////////////
-        // 1. If we distribute the batches early, we might not need to hold the entire input data in memory. //
-        // 2. If we process the batches early, we can achieve latency hiding. /////////////////////////////////
-        // TODO: Implement the processing of the data for the concrete assignment. ////////////////////////////
-        ///////////////////////////////////////////////////////////////////////////////////////////////////////
         if (this.workers.size() < 1) {
             this.buffer.add(message);
             this.collector.tell(new Collector.CollectMessage("Saved batch of size " + message.getLines().size() + "to buffer."), this.self());
@@ -198,13 +192,17 @@ public class Master extends AbstractLoggingActor {
 
         } else {
             // initialize worker's workload
-            //Todo from second batch message on, this method and tehrefore its workers are skipped. How to handle second batchmessage and so on?
             if (!this.workersInitiated) {
-                // TODO move to startMessageHandler
-                // TODO aktuell werden alte batchmessage in Buffer gespeichert und anschließend unseren datenstrukturen hinzugefügt. Klappt nicht mit verschiedenen alphabeten. Anpassen!
-
+            	String [] firstLine = message.getLines().get(0);
                 // populate alphabet
-				alphabet.addAll(message.getLines().get(0)[2].chars().mapToObj(c -> (char) c).collect(toSet()));
+				alphabet.addAll(firstLine[2].chars().mapToObj(c -> (char) c).collect(toSet()));
+
+				// set Lengths and "Hyperparameters"
+				passwordLength = Integer.valueOf(firstLine[3]);
+				int hintCount = firstLine.length - 5;
+				hintThreshold = Math.min(passwordLength - 3, hintCount - 2);
+
+				log().info("The hintThreshold is "+hintThreshold);
 
                 // Distribute Work for Hint Cracking
                 String[] workerCharAssignments = new String[workers.size()];
@@ -216,8 +214,7 @@ public class Master extends AbstractLoggingActor {
                 }
 
                 for (int i = 0; i < workers.size(); i++) {
-                    // TODO get Length of hints dynamically !!!
-                    workers.get(i).tell(new StartHintCrackingMessage(toCharArray(alphabet), workerCharAssignments[i].toCharArray(), 10), this.self());
+                    workers.get(i).tell(new StartHintCrackingMessage(toCharArray(alphabet), workerCharAssignments[i].toCharArray(), passwordLength), this.self());
                 }
 
                 this.workersInitiated = true;
@@ -229,31 +226,16 @@ public class Master extends AbstractLoggingActor {
 				Collections.addAll(currentHintHashes, Arrays.copyOfRange(line, 5, line.length));
 
 				// Store current entry for later matching
-				password_hash_directory.put(password_hash, currentHintHashes);
+				passwordHashDirectory.put(password_hash, currentHintHashes);
 
 				for (ActorRef w : workers){
 					w.tell(new MoreHintsIncomingMessage(currentHintHashes), this.self());
 				}
 
 				// generate data structure that holds the hint results
-				cracked_hints_by_password.put(password_hash, new HashSet<Character>());
+				crackedHintsByPassword.put(password_hash, new HashSet<Character>());
 			}
 
-//
-//		if (message.getLines().isEmpty()) {
-//			this.collector.tell(new Collector.PrintMessage(), this.self());
-//			this.terminate();
-//			return;
-//		}
-
-            //	Iterator workersIterator = this.workers.iterator();
-            for (String[] line : message.getLines()) {
-                //	if(!workersIterator.hasNext()){workersIterator = this.workers.iterator();}
-                //	System.out.println(this.workers.size());
-                //  ActorRef worker = (ActorRef) workersIterator.next();
-                //	worker.tell(line,this.self());
-                //	System.out.println(Arrays.toString(line));
-            }
         }
 
             this.collector.tell(new Collector.CollectMessage("Processed batch of size " + message.getLines().size()), this.self());
@@ -289,7 +271,7 @@ public class Master extends AbstractLoggingActor {
 	}
 
 	private String getPasswordHashByHintHash(String hintHash){
-		for (Map.Entry<String, Set<String>> pw : password_hash_directory.entrySet()){
+		for (Map.Entry<String, Set<String>> pw : passwordHashDirectory.entrySet()){
 			if (pw.getValue().contains(hintHash)){
 				return pw.getKey();
 			}
